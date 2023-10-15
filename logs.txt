@@ -1,0 +1,14 @@
+True|login|lesyk
+True|write|lesyk
+True|login|lesyk
+True|logs|lesyk
+True|logs|lesyk
+True|logs|lesyk
+True|logs|lesyk
+True|logs|lesyk
+False|sign_up|new_user
+False|sign_up|new_user
+False|sign_up|new_user
+False|sign_up|new_user
+True|login|new_user
+True|logs|new_user

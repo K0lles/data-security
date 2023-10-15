@@ -1,14 +1,15 @@
 import json
 import socket
-from typing import Any, Union
+from typing import Any, Union, Tuple
 
-from constants import FILE_PATH
+import constants
+from constants import ACCESS_FILE_PATH
 
 saved_data: dict = {"base_data": "You have got BASE_DATA OKEY"}
 
 
 def get_username_permission(username: str) -> list:
-    with open(FILE_PATH, "r") as file:
+    with open(ACCESS_FILE_PATH, "r") as file:
         lines: list[str] = file.readlines()
         for line in lines:
             stored_username, stored_hashed_password, permissions = line.strip().split(
@@ -37,7 +38,7 @@ def authenticate(
             return "Finish"
 
         print(data)
-        function_mapping = {"read": read, "write": write}
+        function_mapping = {"read": read, "write": write, "logs": logs}
 
         # Отримання ім'я користувача та геш-значення паролю від клієнта
         if username := data.get("logged_user", None):
@@ -45,24 +46,30 @@ def authenticate(
             print(f"user: {username}, permissions: {permissions}")
             if action := function_mapping.get(data.get("action", None), None):
                 function_data: dict = data.get("data", {})
-                print(function_data)
-                print(action(permissions=permissions, **function_data))
-                client_socket.send(
-                    json.dumps(action(permissions=permissions, **function_data)).encode(
-                        "utf-8"
-                    )
-                )
+                print(f"function_data: {function_data}")
+                status, response = action(permissions=permissions, **function_data)
+                log_action(f"{status}|{action.__name__}|{username}\n")
+                client_socket.send(json.dumps(response).encode("utf-8"))
                 return True
 
         else:
+            if data.get("action", None) == "sign_up":
+                status, response = sign_up(
+                    data.get("username", ""), data.get("password", "")
+                )
+                log_action(f"{status}|sign_up|{data.get('username', '')}\n")
+                client_socket.send(json.dumps(response).encode("utf-8"))
+                return True
             username, hashed_password = data.get("credentials", "").split(":")
             # Перевірка аутентифікації на основі флеш-диска
             if check_authentication_on_flash_drive(username, hashed_password):
                 response = json.dumps({"status": 200})
+                log_action(f"True|login|{username}\n")
                 client_socket.send(response.encode("utf-8"))
                 return True
             else:
                 response = json.dumps({"status": 400})
+                log_action(f"False|login|{username}\n")
                 client_socket.send(response.encode("utf-8"))
                 return False
 
@@ -71,21 +78,75 @@ def authenticate(
         return False
 
 
+def log_action(action: str) -> None:
+    with open(constants.LOG_PATH, "a") as log_file:
+        log_file.write(action)
+
+
+def logs(permissions: list, username: str) -> any:
+    if not "READ" in permissions:
+        return False, ["You do not have permission."]
+    response = []
+    with open(constants.LOG_PATH, "r") as logs:
+        lines = logs.readlines()
+        for line in lines:
+            if line.split("|")[2].replace("\n", "") == username:
+                response.append(line)
+    return True, response
+
+
+def sign_up(username: str, password: str) -> Tuple[bool, str]:
+    if not username or not password:
+        return False, "Write correct username or password"
+
+    with open(ACCESS_FILE_PATH, "r") as file:
+        lines: list[str] = file.readlines()
+        for line in lines:
+            (
+                stored_username,
+                stored_hashed_password,
+                permissions,
+            ) = line.strip().split(":")
+            if stored_username == username:
+                return (
+                    False,
+                    "This username is already in use. Make up something unique.",
+                )
+
+    if validate_username(username):
+        with open(ACCESS_FILE_PATH, "a") as file:
+            file.write(
+                f"\n{username}:{password}:{','.join(constants.SIGN_UP_PERMISSION)}"
+            )
+
+    return True, "Successfully signed up."
+
+
+def validate_username(username: str) -> bool:
+    if (
+        len(username) > 4
+        and not username.__contains__(" ")
+        and not username.__contains__("|")
+    ):
+        return True
+    return False
+
+
 def read(key: any, permissions: list = None) -> any:
     if "READ" in permissions:
-        return saved_data.get(key, None)
-    return "You do not have permission."
+        return True, saved_data.get(key, None)
+    return False, "You do not have permission."
 
 
 def write(key: any, value: any, permissions: list = None) -> any:
     if "WRITE" in permissions:
         try:
             saved_data[key] = value
-            return saved_data.get(key)
+            return True, saved_data.get(key)
         except Exception as exc:
             print(f"Error has occurred with writing in database." f"{exc}")
-        return None
-    return "You do not have permission."
+        return False, None
+    return False, "You do not have permission."
 
 
 # Функція для перевірки аутентифікації на основі флеш-диска
@@ -93,7 +154,7 @@ def check_authentication_on_flash_drive(username: str, hashed_password: str) -> 
     try:
         # Відкрийте файл на флеш-диску для перевірки аутентифікації
         # Файл повинен містити інформацію про користувачів та їх хеш-значення паролів
-        with open(FILE_PATH, "r") as file:
+        with open(ACCESS_FILE_PATH, "r") as file:
             lines: list[str] = file.readlines()
             for line in lines:
                 (

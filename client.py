@@ -29,6 +29,24 @@ def authenticate(username, password):
         print(f"Authentication error: {str(e)}")
 
 
+def sign_up():
+    print("Welcome!")
+    username = input("Enter your new username: ")
+    password = input("Enter your password: ")
+    client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    client_socket.connect(server_address)
+    requests_data["username"], requests_data["password"] = (
+        username,
+        hashlib.sha256(password.encode()).hexdigest(),
+    )
+    requests_data["action"] = "sign_up"
+    client_socket.send(json.dumps(requests_data).encode("utf-8"))
+    response = json.loads(client_socket.recv(1024).decode("utf-8"))
+    del requests_data["action"]
+    client_socket.close()
+    print(response)
+
+
 def login():
     username = input("Enter your username: ")
     password = input("Enter your password: ")
@@ -75,6 +93,19 @@ def write():
     return
 
 
+def get_logs():
+    client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    client_socket.connect(server_address)
+    requests_data["action"] = "logs"
+    requests_data["data"] = {}
+    requests_data["data"]["username"] = requests_data["logged_user"]
+    client_socket.send(json.dumps(requests_data).encode("utf-8"))
+    response = json.loads(client_socket.recv(1024).decode())
+    for line in response:
+        print(line)
+    client_socket.close()
+
+
 def finish():
     client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     client_socket.connect(server_address)
@@ -90,6 +121,15 @@ def main():
 
         if action == "login":
             login()
+
+        if action == "sign up":
+            sign_up()
+
+        if action == "logs":
+            if not requests_data.get("logged_user", None):
+                print("You need to login.")
+            else:
+                get_logs()
 
         if action == "read":
             if not requests_data.get("logged_user", None):
